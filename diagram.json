@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "author": "Haitham Sungkar",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 9.6, "left": 43.24, "attrs": {} },
+    {
+      "type": "wokwi-serial-port",
+      "id": "serial",
+      "top": 0,
+      "left": 0,
+      "attrs": { "baud": "9600" }
+    },
+    {
+      "type": "wokwi-pushbutton-6mm",
+      "id": "btn1",
+      "top": 55.4,
+      "left": -38.4,
+      "attrs": { "color": "green", "key": "1" }
+    },
+    { "type": "wokwi-vcc", "id": "vcc1", "top": 0.76, "left": -48, "attrs": {} },
+    { "type": "wokwi-gnd", "id": "gnd1", "top": 182.4, "left": -48.6, "attrs": {} },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": 82.8,
+      "left": -34.6,
+      "attrs": { "color": "red", "flip": "" }
+    },
+    { "type": "wokwi-junction", "id": "j1", "top": 72, "left": 14.4, "attrs": {} },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 109.55,
+      "left": -96,
+      "rotate": 90,
+      "attrs": { "value": "1000" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "esp:17", "serial:RX", "", [] ],
+    [ "esp:16", "serial:TX", "", [] ],
+    [ "vcc1:VCC", "btn1:1.l", "red", [ "v0" ] ],
+    [ "esp:34", "j1:J", "green", [ "h0" ] ],
+    [ "btn1:2.r", "j1:J", "green", [ "h0" ] ],
+    [ "gnd1:GND", "led1:C", "black", [ "v0" ] ],
+    [ "led1:A", "btn1:2.r", "green", [ "v0" ] ],
+    [ "gnd1:GND", "r1:2", "black", [ "v0" ] ],
+    [ "r1:1", "btn1:2.l", "green", [ "h0" ] ]
+  ],
+  "serialMonitor": { "display": "terminal" },
+  "dependencies": {}
+}
