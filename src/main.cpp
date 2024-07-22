@@ -17,26 +17,6 @@ const uint32_t DemoModeDelay = 10; //3000; // msec before Initialization, used f
 #define ModbusPort Serial1 // RXTXpin tobe Defined RX_GPIO33 TX_GPIO32
 #define sensorPort Serial2 // Serial2 RX_GPIO16 TX_GPIO17
 
-/*----------------------------------------\
->------ModBus Def & Declaration-----------|
-\----------------------------------------*/
-#define SLAVE_ID 1 // Cange depen on Device Requrement.
-
-//---Modbus-RTU Loop Task Def.-----
-BaseType_t MBCore;   // [ModBus Loop Core] var: Core0?
-TaskHandle_t MBTask; // Modbus Task Handle for Core 0
-void Modbus_Loop(void * pvParameters); // For MBTask at Core 0
-
-// Modbus Registers Offsets (0-9999)
-const int NTUval_LoWord_Ireg = 0; //  2x Inpput Registers 4-bytes floating Point (Single)
-const int NTUval_HiWord_Ireg = 1; //  2x Inpput Registers 4-bytes floating Point (Single)
-const int Sensor_Range_Ireg = 2;  // Sensor Range Value: 1 = Low; 2 = Medium; 3 = Large
-
-const int Sensor_Wipe_Coil = 0; // Sensor Wiper Registers/Coil
-
-ModbusRTU mb; // ModbusSerial object
-//---------ModBus Def & Dec End Here
-
 
 // Sensor asObject -> Turbidity Sensor
 struct SensorObject
@@ -87,17 +67,89 @@ struct HWModule
     return btnStatus;
   }
 }TMR_Device;
- 
+
+//>------ModBus Def & Declaration-----------
+struct ModBusRTU_Slave
+{
+#define SLAVE_ID 1 // Cange depen on Device Requrement.
+  HardwareSerial port = ModbusPort;
+  //---Modbus-RTU Loop Task Def.-----
+  BaseType_t MBCore;   // [ModBus Loop Core] var: Core0?
+  TaskHandle_t MBTask; // Modbus Task Handle for Core 0 
+
+  // Modbus Registers Offsets (0-9999)
+  const int NTUval_LoWord_Ireg = 0; //  2x Inpput Registers 4-bytes floating Point (Single)
+  const int NTUval_HiWord_Ireg = 1; //  2x Inpput Registers 4-bytes floating Point (Single)
+  const int Sensor_Range_Ireg = 2;  // Sensor Range Value: 1 = Low; 2 = Medium; 3 = Large
+
+  const int Sensor_Wipe_Coil = 0; // Sensor Wiper Registers/Coil
+
+  ModbusRTU mb; // ModbusSerial object
+
+  // Values Variables
+  float NTUval;
+  uint32_t dval; // typeCast to unsigned 32bit integer (4-byte).  //= *((uint32_t *) &Sensor.NTUval);
+  uint16_t Hval; // High Word 16-bit                               // = dval >> 16;
+  uint16_t LVal; // Low Word 16-bit                                // = dval & 0xFFFF;
+
+  /* Initialize TMR_ModBus Object: ModBusPort, SlaveID, Registers, Initial Values, etc \
+  |> NTUval : Inital NTU Value, NaN as Default                                          |
+  |> RangeMode: Sensor eRange (-1: None, 0: Auto, 1: Low, 2: Medium, 3: Large)          | 
+  \------------------------------------------------------------------------------------*/
+  void Init(float NTUval = NAN, int RangeMode = -1)
+  {
+    port.begin(9600, SerialConfig::SERIAL_8N1, GPIO_NUM_33, GPIO_NUM_32); // RXTXpin RX_GPIO33 TX_GPIO32
+    mb.begin(&port);
+    mb.slave(SLAVE_ID);
+    
+    // Defiine Modbus Register
+    mb.addIreg(NTUval_HiWord_Ireg);
+    mb.addIreg(NTUval_LoWord_Ireg);
+    mb.addIreg(Sensor_Range_Ireg);
+    mb.addCoil(Sensor_Wipe_Coil);
+
+    UpdateNTUVal(NTUval, RangeMode); //Initial Reading
+    mb.Coil(Sensor_Wipe_Coil,0);               //Inital WipeCoil Staus
+  }
+
+  // Update NTU Vlaue to Modbus Registers
+  bool UpdateNTUVal(float fNTUVal, int RangeMode) {
+     NTUval = fNTUVal;
+     dval = *((uint32_t *) &NTUval); // typeCast to unsigned 32bit integer (4-byte).
+     Hval = dval >> 16;             // High Word 16-bit
+     LVal = dval & 0xFFFF;          // Low Word 16-bit
+    bool Result = true;
+    Result = mb.Ireg(NTUval_HiWord_Ireg,Hval)? Result:false;
+    Result = mb.Ireg(NTUval_LoWord_Ireg,LVal)? Result:false;
+    Result = mb.Ireg(Sensor_Range_Ireg,RangeMode)? Result:false;
+    return Result;
+  }
+  
+  //To Add:
+  // Wipe.IsRequested
+  // Wipe.Done
+
+} TMR_Modbus;
+void Aux_Loop(void *pvParameters); 
+//---------ModBus Def & Dec End Here 
 
 void setup()
 { 
   // Host Port Initialization:
   HostPort.begin(9600, SerialConfig::SERIAL_8N1);
+  HostPort.flush(); yield();
   HostPort.printf("setup() is running on Core %d\r\n\n", xPortGetCoreID());
   HostPort.printf("initialization\r\n");
   delay(DemoModeDelay);
   TMR_Device.Init();
   delay(100);
+
+  // Modbus Initialization
+  HostPort.println("Modbus Port Inisialization");
+  TMR_Modbus.Init(Sensor.NTUval, SensorObject::eRange::None);
+  HostPort.printf("Modbus Slave ID = %d\r\n",SLAVE_ID);
+  //Create Aux_Loop "Aux_ModBusLoop" Loop Task
+  xTaskCreatePinnedToCore(Aux_Loop,"Aux_ModBusLoop",10000,NULL,1,&TMR_Modbus.MBTask,0);
 
   // Sensor Initialisation Start here..
   HostPort.printf("sensorPort Init...\r\n");
@@ -113,30 +165,7 @@ void setup()
     esp_restart();
   }
 
-  // Modbus Initialization
-  HostPort.println("Modbus Port Inisialization");
-  ModbusPort.begin(9600, SerialConfig::SERIAL_8N1, GPIO_NUM_33, GPIO_NUM_32); // RXTXpin RX_GPIO33 TX_GPIO32
-  mb.begin(&ModbusPort);
-  mb.slave(SLAVE_ID);
-  HostPort.printf("Modbus Slave ID = %d\r\n",SLAVE_ID);
-  // Defiine Modbus Register  
-  mb.addIreg(NTUval_HiWord_Ireg);
-  mb.addIreg(NTUval_LoWord_Ireg);
-  mb.addIreg(Sensor_Range_Ireg);
-  mb.addCoil(Sensor_Wipe_Coil);
-  // Init Modbus Values or 0xFFFF if sensor not ready
-  uint32_t dval = *((uint32_t *)&Sensor.NTUval); // typeCast to unsigned 32bit integer (4-byte).
-  uint16_t Hval = dval >> 16;                    // High Word 16-bit
-  uint16_t LVal = dval & 0xFFFF;                 // Low Word 16-bit
-  mb.Ireg(NTUval_HiWord_Ireg, Hval);
-  mb.Ireg(NTUval_LoWord_Ireg, LVal);
-  mb.Ireg(Sensor_Range_Ireg, Sensor.Range);
-  mb.Coil(0);
-
   HostPort.printf("Started...\r\n");
-
-  //Create Modbus-RTU Loop Task
-  xTaskCreatePinnedToCore(Modbus_Loop,"ModBusLoop",10000,NULL,1,&MBTask,0);
 }
 
 void loop()
@@ -145,29 +174,27 @@ void loop()
   HostPort.printf("loop void on Core %d\r\n\n", xPortGetCoreID());
 
   //Check Input Command
-  if (mb.Coil(Sensor_Wipe_Coil))
+  if (TMR_Modbus.mb.Coil(TMR_Modbus.Sensor_Wipe_Coil))
   {
     Sensor.wipe(&HostPort); yield();
-    mb.Coil(Sensor_Wipe_Coil, false);
+    TMR_Modbus.mb.Coil(TMR_Modbus.Sensor_Wipe_Coil, false);
   }
   
   Sensor.read(10, &HostPort);
   if (Sensor.valValid)
   {
-    // NTUval = atof("5000.51");
-    uint32_t dval = *((uint32_t *) &Sensor.NTUval); // typeCast to unsigned 32bit integer (4-byte).
-    uint16_t Hval = dval >> 16;             // High Word 16-bit
-    uint16_t LVal = dval & 0xFFFF;          // Low Word 16-bit
+    // ModBus
+    TMR_Modbus.UpdateNTUVal(Sensor.NTUval, Sensor.Range);
+    uint32_t dval = TMR_Modbus.dval; // typeCast to unsigned 32bit integer (4-byte).
+    uint16_t Hval = TMR_Modbus.Hval;             // High Word 16-bit
+    uint16_t LVal = TMR_Modbus.LVal;          // Low Word 16-bit
     // HostPort
     String sRange = Sensor.Range_toString(Sensor.Range);
     HostPort.printf("Sensor ID: %d\r\n", Sensor.SensorID);
     HostPort.printf("Turbidity: %#.2f NTU \n\r Range R%d: %s\r\n", Sensor.NTUval, Sensor.Range, &sRange);
     HostPort.printf("32bit Register: 0x%X \r\n", dval);
-    HostPort.printf("High Word : 0x%X \n\r Low Word : 0x%X \r\n", Hval, LVal);
-    // ModBus
-    mb.Ireg(NTUval_HiWord_Ireg, Hval);
-    mb.Ireg(NTUval_LoWord_Ireg, LVal);
-    mb.Ireg(Sensor_Range_Ireg, Sensor.Range);
+    HostPort.printf("High Word : 0x%X \n\r Low Word : 0x%X \r\n", Hval, LVal);   
+
   }
   else
   {
@@ -182,25 +209,26 @@ void loop()
     esp_restart();
   }
   
-  HostPort.printf("Modbus Slave ID = %d @Core %d\r\n",SLAVE_ID, MBCore);
+  HostPort.printf("Modbus Slave ID = %d @Core %d\r\n",SLAVE_ID, TMR_Modbus.MBCore);
   delay(100);
 }
 
-// For MBTask at Core 0
-void Modbus_Loop(void * pvParameters)
+// Additional Loop to Server Modbus Host Request at Core 0
+void Aux_Loop(void * pvParameters)
 {
   for (;;)
   {
-    mb.task();
+    TMR_Modbus.mb.task();
     yield();
     delay(100);
     if(TMR_Device.WipeButton_Status()){
-      mb.Coil(Sensor_Wipe_Coil, true);
+      TMR_Modbus.mb.Coil(TMR_Modbus.Sensor_Wipe_Coil, true);
     }
-    MBCore = xPortGetCoreID(); // GEt Modbus Loop Core#
+    TMR_Modbus.MBCore = xPortGetCoreID(); // GEt Modbus Loop Core#
   }  
 }
-// SensorCheck function for duration t seconds
+
+// Sensor Initialization Check, function
 bool SensorObject::Init_Check(HardwareSerial* host = &HostPort)
 {
   String txtResponse = Sensor.read(10, host); // check if Sensor available, wait for (1..10 second)
@@ -255,7 +283,7 @@ String SensorObject::read(u_int wait_t_seconds, HardwareSerial* host)
     txtResponse.trim();
     int LenResp = txtResponse.length();
     const char *cResponse = txtResponse.c_str();
-    int scanFound = sscanf(cResponse, "#,%d,R%d,%f", &SensorID, &Range, &NTUval);
+    int scanFound = sscanf(cResponse, "#,%d,R%d,%f", SensorID, Range, NTUval);
     valValid = (scanFound = 3) ? true : false;
     if (valValid)
     {
@@ -269,7 +297,7 @@ String SensorObject::read(u_int wait_t_seconds, HardwareSerial* host)
   }
   return txtResponse;
 }
-
+// Set Sensor Measuring Range Mode
 void SensorObject::setRange(eRange Range, HardwareSerial *host)
 {
   String strRange;
@@ -279,7 +307,7 @@ void SensorObject::setRange(eRange Range, HardwareSerial *host)
   port.printf("%d,range,%d\n\r", SensorID, Range); yield(); yield();
   delay(1000);
 }
-
+// Invoke Sensor to Wipe
 void SensorObject::wipe(HardwareSerial *host)
 {
   host->printf("Wipe Sensor...!\n\r");  yield();
@@ -287,4 +315,5 @@ void SensorObject::wipe(HardwareSerial *host)
   port.printf("%d,wipe\n\r", SensorID);  yield();
   delay(1000);
   read(10, host);  yield();  // wait for sensor response
+
 }
