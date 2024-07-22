@@ -8,6 +8,7 @@
 
 #include <Arduino.h>
 #include <ModbusRTU.h>
+#include <EEPROM.h>
 
 const char *EoLoop = "-<EOL>-"; // End Of Loop Void
 const uint32_t DemoModeDelay = 10; //3000; // msec before Initialization, used for online simulation only
@@ -17,6 +18,9 @@ const uint32_t DemoModeDelay = 10; //3000; // msec before Initialization, used f
 #define ModbusPort Serial1 // RXTXpin tobe Defined RX_GPIO33 TX_GPIO32
 #define sensorPort Serial2 // Serial2 RX_GPIO16 TX_GPIO17
 
+//Define EEPROM
+#define EEPROM_SIZE 1  // Ukuran EEPROM dalam byte
+#define ID_ADDRESS 0     // Alamat EEPROM untuk menyimpan nilai id
 
 // Sensor asObject -> Turbidity Sensor
 struct SensorObject
