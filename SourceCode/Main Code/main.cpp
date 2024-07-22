@@ -5,7 +5,7 @@
 > Monitor Port: ESP32-USB (UART0 = Serial) as HostPort
 > Wipe Button : at GPIO34 [Normally Low]
 */
-//Ahmad T , change 1
+
 #include <Arduino.h>
 #include <ModbusRTU.h>
 
