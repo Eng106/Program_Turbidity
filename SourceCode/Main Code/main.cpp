@@ -22,6 +22,9 @@ const uint32_t DemoModeDelay = 10; //3000; // msec before Initialization, used f
 #define EEPROM_SIZE 1  // Ukuran EEPROM dalam byte
 #define ID_ADDRESS 0     // Alamat EEPROM untuk menyimpan nilai id
 
+//EEPROM Slave ID
+int SlaveID = -1;
+
 // Sensor asObject -> Turbidity Sensor
 struct SensorObject
 {
@@ -116,7 +119,7 @@ struct ModBusRTU_Slave
     mb.Coil(Sensor_Wipe_Coil,0);               //Inital WipeCoil Staus
   }
 
-  // Update NTU Vlaue to Modbus Registers
+  // Update NTU Value to Modbus Registers
   bool UpdateNTUVal(float fNTUVal, int RangeMode) {
      NTUval = fNTUVal;
      dval = *((uint32_t *) &NTUval); // typeCast to unsigned 32bit integer (4-byte).
@@ -137,8 +140,10 @@ struct ModBusRTU_Slave
 void Aux_Loop(void *pvParameters); 
 //---------ModBus Def & Dec End Here 
 
+
 void setup()
 { 
+
   // Host Port Initialization:
   HostPort.begin(9600, SerialConfig::SERIAL_8N1);
   HostPort.printf("setup() is running on Core %d\r\n\n", xPortGetCoreID());
@@ -169,6 +174,13 @@ void setup()
   }
 
   HostPort.printf("Started...\r\n");
+
+  //EEPROM Initialization
+  EEPROM.begin(EEPROM_SIZE);  // Inisialisasi EEPROM dengan ukuran yang ditentukan
+  SlaveID = EEPROM.read(ID_ADDRESS);
+  HostPort.printf("Modbus Slave ID = %d\r\n", SlaveID);
+  HostPort.println("Ready to receive commands.");
+
 }
 
 void loop()
@@ -213,6 +225,32 @@ void loop()
   }
   
   HostPort.printf("Modbus Slave ID = %d @Core %d\r\n",SLAVE_ID, TMR_Modbus.MBCore);
+  //Check EEPROM Command
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');  // Membaca input serial sampai newline
+    command.trim();  // Menghapus spasi putih di awal dan akhir string
+
+    if (command.startsWith("AT+id=")) {
+      if (command.length() > 6) {  // Memastikan ada nilai setelah "AT+id="
+        String idValue = command.substring(6);  // Mendapatkan nilai setelah "AT+id="
+        int id = idValue.toInt();  // Mengubah nilai menjadi integer
+
+        EEPROM.write(ID_ADDRESS, id);  // Menulis nilai ke EEPROM pada alamat ID_ADDRESS
+        EEPROM.commit();  // Menyimpan perubahan ke EEPROM
+        Serial.print("Stored id: ");
+        Serial.println(id);
+      } else {
+        Serial.println("Error: No value provided after AT+id=");
+      }
+    } else if (command.equals("AT+id")) {
+      int storedId = EEPROM.read(ID_ADDRESS);  // Membaca nilai dari EEPROM pada alamat ID_ADDRESS
+      Serial.print("Current id: ");
+      Serial.println(storedId);
+    } else {
+      Serial.println("Invalid command. Use AT+id=value or AT+id.");
+    }
+  }
+
   delay(100);
 }
 
