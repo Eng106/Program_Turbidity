@@ -143,7 +143,6 @@ void Aux_Loop(void *pvParameters);
 
 void setup()
 { 
-
   // Host Port Initialization:
   HostPort.begin(9600, SerialConfig::SERIAL_8N1);
   HostPort.printf("setup() is running on Core %d\r\n\n", xPortGetCoreID());
@@ -200,8 +199,8 @@ void loop()
   {
     // ModBus
     TMR_Modbus.UpdateNTUVal(Sensor.NTUval, Sensor.Range);
-    uint32_t dval = TMR_Modbus.dval; // typeCast to unsigned 32bit integer (4-byte).
-    uint16_t Hval = TMR_Modbus.Hval;             // High Word 16-bit
+    uint32_t dval = TMR_Modbus.dval;          // typeCast to unsigned 32bit integer (4-byte).
+    uint16_t Hval = TMR_Modbus.Hval;          // High Word 16-bit
     uint16_t LVal = TMR_Modbus.LVal;          // Low Word 16-bit
     // HostPort
     String sRange = Sensor.Range_toString(Sensor.Range);
